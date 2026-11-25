@@ -170,3 +170,7 @@ window.SEED_DATA = {
   ],
   tasks: []
 };
+
+/* 网页版：每位访客默认空白，数据只从本地或导入来 */
+window.SEED_DATA.courses = [];
+window.SEED_DATA.tasks = [];
