@@ -648,6 +648,14 @@
           ? '<button class="switch' + (s.notify ? " on" : "") + '" data-act="toggle-notify" aria-label="桌面通知"></button>'
           : '<button class="btn sm" data-act="request-notify">去开启</button>') +
       "</div></div>" +
+      (perm === "granted"
+        ? '<div class="set-row"><div class="k">测试通知<small>看看手机能不能收到</small></div>' +
+          '<div class="v"><button class="btn sm" data-act="test-notify">发一条</button></div></div>'
+        : "") +
+      (perm === "denied"
+        ? '<div class="set-row"><div class="k">被拒绝后怎么恢复</div><div class="v" style="max-width:190px">' +
+          '<span class="gnote">点地址栏左边的锁/信息图标 →「网站设置」→ 通知改为「允许」，然后刷新</span></div></div>'
+        : "") +
       "</div></div>";
 
     h += '<div class="set-group"><div class="set-label">课表显示</div><div class="set-body">' +
@@ -1342,8 +1350,32 @@
           if (!("Notification" in window)) { toast("不支持", "当前浏览器不支持桌面通知"); break; }
           Notification.requestPermission().then(function (p) {
             render();
-            toast("通知权限", p === "granted" ? "已开启，记得把这个网页加到主屏幕" : "未开启");
+            if (p === "granted") {
+              toast("通知已开启", "点下面的「测试通知」验证一下");
+              try {
+                new Notification("课表 · 提醒", { body: "通知已开启，有课或任务到期时会这样提醒你", tag: "welcome" });
+              } catch (e) { /* 忽略 */ }
+            } else if (p === "denied") {
+              toast("被拒绝了", "点地址栏的锁图标 → 网站设置 → 通知改为允许");
+            } else {
+              toast("还没开启", "可以再点一次「去开启」");
+            }
           });
+          break;
+        }
+        case "test-notify": {
+          if (!("Notification" in window)) { toast("不支持", "当前浏览器不支持桌面通知"); break; }
+          if (Notification.permission !== "granted") { toast("还没授权", "先点「去开启」并允许"); break; }
+          try {
+            new Notification("测试通知", {
+              body: "能看到这条，说明提醒可以正常弹出来",
+              tag: "test-" + Date.now()
+            });
+            toast("已发送", "如果手机没反应，检查系统的通知权限");
+            beep(2);
+          } catch (e) {
+            toast("发送失败", String(e.message || e));
+          }
           break;
         }
       }
