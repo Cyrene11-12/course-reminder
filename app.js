@@ -174,6 +174,8 @@
   }
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* 隐私模式 */ }
+    // 数据变了就重排系统通知（内部有 60 秒节流）
+    if (nativePerm === "granted") nativeSync();
   }
 
   /* ==================== 周次 / 课程 ==================== */
@@ -643,19 +645,32 @@
         "</select></div></div>" +
       '<div class="set-row"><div class="k">提示音<small>提醒时响一下</small></div><div class="v">' +
         '<button class="switch' + (s.sound ? " on" : "") + '" data-act="toggle-sound" aria-label="提示音"></button></div></div>' +
-      '<div class="set-row"><div class="k">桌面通知<small>' + esc(permText) + "</small></div><div class=\"v\">" +
-        (perm === "granted"
-          ? '<button class="switch' + (s.notify ? " on" : "") + '" data-act="toggle-notify" aria-label="桌面通知"></button>'
-          : '<button class="btn sm" data-act="request-notify">去开启</button>') +
-      "</div></div>" +
-      (perm === "granted"
-        ? '<div class="set-row"><div class="k">测试通知<small>看看手机能不能收到</small></div>' +
-          '<div class="v"><button class="btn sm" data-act="test-notify">发一条</button></div></div>'
-        : "") +
-      (perm === "denied"
-        ? '<div class="set-row"><div class="k">被拒绝后怎么恢复</div><div class="v" style="max-width:190px">' +
-          '<span class="gnote">点地址栏左边的锁/信息图标 →「网站设置」→ 通知改为「允许」，然后刷新</span></div></div>'
-        : "") +
+      (nativeLN()
+        ? '<div class="set-row"><div class="k">系统通知<small>' +
+            (nativePerm === "granted"
+              ? "已授权 · 退出 App 也会按时提醒"
+              : "需要授权，才能在别的界面弹出来") + "</small></div><div class=\"v\">" +
+            (nativePerm === "granted"
+              ? '<span class="chip ok">已开启</span>'
+              : '<button class="btn sm primary" data-act="native-perm">授权</button>') +
+          "</div></div>" +
+          (nativePerm === "granted"
+            ? '<div class="set-row"><div class="k">测试通知<small>5 秒后发一条系统通知</small></div>' +
+              '<div class="v"><button class="btn sm" data-act="native-test">发一条</button></div></div>'
+            : "")
+        : '<div class="set-row"><div class="k">桌面通知<small>' + esc(permText) + "</small></div><div class=\"v\">" +
+          (perm === "granted"
+            ? '<button class="switch' + (s.notify ? " on" : "") + '" data-act="toggle-notify" aria-label="桌面通知"></button>'
+            : '<button class="btn sm" data-act="request-notify">去开启</button>') +
+          "</div></div>" +
+          (perm === "granted"
+            ? '<div class="set-row"><div class="k">测试通知<small>看看手机能不能收到</small></div>' +
+              '<div class="v"><button class="btn sm" data-act="test-notify">发一条</button></div></div>'
+            : "") +
+          (perm === "denied"
+            ? '<div class="set-row"><div class="k">被拒绝后怎么恢复</div><div class="v" style="max-width:190px">' +
+              '<span class="gnote">点地址栏左边的锁/信息图标 →「网站设置」→ 通知改为「允许」，然后刷新</span></div></div>'
+            : "")) +
       "</div></div>";
 
     h += '<div class="set-group"><div class="set-label">课表显示</div><div class="set-body">' +
@@ -741,7 +756,7 @@
         '<div class="v"><button class="btn sm" data-act="copy-link">复制</button></div></div>' +
       (location.protocol === "file:"
         ? ""
-        : '<div class="set-row"><div class="k">安卓安装包<small>APK · 3.6 MB，安装时需允许「未知来源」</small></div>' +
+        : '<div class="set-row"><div class="k">安卓安装包<small>APK · 约 4 MB，安装时需允许「未知来源」</small></div>' +
           '<div class="v"><a class="btn sm" href="coursereminder.apk" download>下载</a></div></div>') +
       (gh
         ? '<div class="set-row"><div class="k">下载源码<small>整个站点打包成 zip</small></div>' +
@@ -960,6 +975,109 @@
   }
 
   /** 从 xxx.github.io/repo 反推出仓库地址；非 Pages 环境返回 null */
+  /* ==================== 原生通知（APK 内） ==================== */
+  var nativePerm = "unknown";     // granted | denied | unknown | unsupported
+  var nativeSyncAt = 0;
+
+  function nativeLN() {
+    var cap = window.Capacitor;
+    if (!cap || typeof cap.isNativePlatform !== "function" || !cap.isNativePlatform()) return null;
+    return (cap.Plugins && cap.Plugins.LocalNotifications) || null;
+  }
+
+  /** 把未来 14 天的上课 / 任务截止排进系统闹钟 */
+  function buildNativeItems() {
+    var list = [];
+    var lead = Number(state.settings.leadMinutes) || 0;
+    var now = Date.now();
+    var horizon = now + 14 * 86400000;
+
+    for (var d = 0; d < 14; d++) {
+      var date = addDays(today0(), d);
+      dayClasses(date, weekOf(date)).forEach(function (c) {
+        var at = new Date(date.getTime());
+        at.setHours(0, 0, 0, 0);
+        at.setMinutes(c.time.fromMin - lead);
+        if (at.getTime() <= now + 30000 || at.getTime() > horizon) return;
+        list.push({
+          at: at.getTime(),
+          title: "还有 " + lead + " 分钟上课",
+          body: c.course.name + " · " + c.time.from + "–" + c.time.to + (c.course.room ? " · " + c.course.room : "")
+        });
+      });
+    }
+
+    (state.tasks || []).forEach(function (t) {
+      if (t.done || !t.due) return;
+      var due = new Date(t.due);
+      if (isNaN(due.getTime())) return;
+      var at = due.getTime() - lead * 60000;
+      if (at <= now + 30000 || at > horizon) return;
+      list.push({ at: at, title: "任务快截止了", body: t.title + " · " + fmtDue(due) });
+    });
+
+    list.sort(function (a, b) { return a.at - b.at; });
+    return list;
+  }
+
+  function nativeSync(force) {
+    var LN = nativeLN();
+    if (!LN) return;
+    var now = Date.now();
+    if (!force && now - nativeSyncAt < 60000) return;
+    nativeSyncAt = now;
+
+    var items = buildNativeItems().slice(0, 80);
+    Promise.resolve(LN.getPending())
+      .then(function (r) {
+        var pend = (r && r.notifications) || [];
+        if (!pend.length) return null;
+        return LN.cancel({ notifications: pend.map(function (n) { return { id: n.id }; }) });
+      })
+      .then(function () {
+        if (!items.length) return null;
+        return LN.schedule({
+          notifications: items.map(function (it, i) {
+            return {
+              id: i + 1,
+              title: it.title,
+              body: it.body,
+              channelId: "reminders",
+              schedule: { at: new Date(it.at), allowWhileIdle: true }
+            };
+          })
+        });
+      })
+      .catch(function () { /* 忽略：不影响页面 */ });
+  }
+
+  function nativeInit() {
+    var LN = nativeLN();
+    if (!LN) { nativePerm = "unsupported"; return; }
+    try {
+      LN.createChannel({
+        id: "reminders",
+        name: "上课与任务提醒",
+        description: "临近上课或任务截止时的提醒",
+        importance: 4,
+        visibility: 1,
+        vibration: true
+      });
+    } catch (e) { /* 老版本无 createChannel */ }
+
+    Promise.resolve(LN.checkPermissions())
+      .then(function (p) {
+        if (p && p.display === "granted") { nativePerm = "granted"; return p; }
+        return LN.requestPermissions();
+      })
+      .then(function (p) {
+        nativePerm = p && p.display === "granted" ? "granted" : "denied";
+        if (ui.tab === "settings") render();
+        if (nativePerm === "granted") nativeSync(true);
+      })
+      .catch(function () { nativePerm = "denied"; });
+  }
+
   function githubRepo() {
     var m = /^([\w.-]+)\.github\.io$/i.exec(location.hostname);
     if (!m) return null;
@@ -1367,6 +1485,32 @@
           });
           break;
         }
+        case "native-perm": {
+          var LNp = nativeLN();
+          if (!LNp) { toast("不支持", "当前不是 App 环境"); break; }
+          Promise.resolve(LNp.requestPermissions()).then(function (p) {
+            nativePerm = p && p.display === "granted" ? "granted" : "denied";
+            render();
+            if (nativePerm === "granted") { nativeSync(true); toast("已授权", "现在退出 App 也能收到提醒"); }
+            else toast("未授权", "可以在系统设置 → 应用 → 课表提醒 → 通知里打开");
+          }).catch(function () { toast("授权失败", "请到系统设置里手动开启"); });
+          break;
+        }
+        case "native-test": {
+          var LNt = nativeLN();
+          if (!LNt) { toast("不支持", "当前不是 App 环境"); break; }
+          LNt.schedule({
+            notifications: [{
+              id: 9000,
+              title: "测试通知",
+              body: "能看到这条，说明上课和任务提醒会正常弹出",
+              channelId: "reminders",
+              schedule: { at: new Date(Date.now() + 5000), allowWhileIdle: true }
+            }]
+          }).then(function () { toast("已排程", "5 秒后会弹出一条系统通知"); })
+            .catch(function (e) { toast("发送失败", String((e && e.message) || e)); });
+          break;
+        }
         case "test-notify": {
           if (!("Notification" in window)) { toast("不支持", "当前浏览器不支持桌面通知"); break; }
           if (Notification.permission !== "granted") { toast("还没授权", "先点「去开启」并允许"); break; }
@@ -1509,6 +1653,7 @@
     bind();
     render();
     reminderTick();
+    nativeInit();
 
     // 取本机访问地址（只在 server.py 下有效）
     fetch("api/info", { cache: "no-store" })
