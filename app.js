@@ -72,7 +72,7 @@
 
   /* ==================== 状态 ==================== */
   var state = loadState();
-  var ui = { tab: "today", week: null, days: null, pri: "mid", pdOpen: false };
+  var ui = { tab: "today", week: null, days: null, pri: "mid", pdOpen: false, gapOpen: false };
 
   var DEFAULT_TIME = { amStart: "08:00", pmStart: "14:00", evStart: "19:00", periodMin: 45, breakMin: 10 };
 
@@ -91,16 +91,31 @@
     };
   }
 
+  /** gaps[i] = 第 i+1 节与第 i+2 节之间的课间分钟数（共 10 个间隔）。
+      第 4→5 节、第 8→9 节由「下午开始 / 晚上开始」决定，不用 gaps[3] / gaps[7]。 */
+  function normalizeGaps(t) {
+    var base = Math.min(40, Math.max(0, Number(t.breakMin) || 10));
+    var arr = Array.isArray(t.gaps) ? t.gaps.slice() : [];
+    for (var i = 0; i < 10; i++) {
+      var v = Number(arr[i]);
+      arr[i] = isFinite(v) ? Math.min(60, Math.max(0, Math.round(v))) : base;
+    }
+    t.gaps = arr;
+    return arr;
+  }
+
   function buildPeriods(t) {
-    var out = [], n = 1;
-    [[t.amStart, 4], [t.pmStart, 4], [t.evStart, 3]].forEach(function (sec) {
-      var cur = toMin(sec[0]);
-      for (var i = 0; i < sec[1]; i++) {
-        out.push({ n: n, start: fmtHM(cur), end: fmtHM(cur + Number(t.periodMin)) });
-        cur += Number(t.periodMin) + Number(t.breakMin);
-        n++;
-      }
-    });
+    var gaps = normalizeGaps(t);
+    var per = Math.min(120, Math.max(20, Number(t.periodMin) || 45));
+    var anchors = { 1: toMin(t.amStart), 5: toMin(t.pmStart), 9: toMin(t.evStart) };
+    var out = [], prevEnd = 0;
+    for (var n = 1; n <= 11; n++) {
+      var start;
+      if (anchors[n] != null) start = anchors[n];
+      else start = prevEnd + gaps[n - 2];        // 第 n-1 与第 n 节之间的课间
+      out.push({ n: n, start: fmtHM(start), end: fmtHM(start + per) });
+      prevEnd = start + per;
+    }
     return out;
   }
 
@@ -110,6 +125,7 @@
     var t = state.settings.time;
     t.periodMin = Math.min(120, Math.max(20, Number(t.periodMin) || 45));
     t.breakMin = Math.min(40, Math.max(0, Number(t.breakMin) || 10));
+    normalizeGaps(t);
     if (!/^\d{2}:\d{2}$/.test(t.amStart || "")) t.amStart = DEFAULT_TIME.amStart;
     if (!/^\d{2}:\d{2}$/.test(t.pmStart || "")) t.pmStart = DEFAULT_TIME.pmStart;
     if (!/^\d{2}:\d{2}$/.test(t.evStart || "")) t.evStart = DEFAULT_TIME.evStart;
@@ -655,11 +671,36 @@
         '<input type="time" data-set="settings.time.evStart" value="' + esc(tt.evStart) + '"></div></div>' +
       '<div class="set-row"><div class="k">单节课时长<small>分钟</small></div><div class="v">' +
         '<input type="number" min="20" max="120" step="5" data-set="settings.time.periodMin" value="' + esc(tt.periodMin) + '"></div></div>' +
-      '<div class="set-row"><div class="k">课间时长<small>分钟</small></div><div class="v">' +
+      '<div class="set-row"><div class="k">默认课间<small>分钟，改动会应用到所有课间</small></div><div class="v">' +
         '<input type="number" min="0" max="40" step="5" data-set="settings.time.breakMin" value="' + esc(tt.breakMin) + '"></div></div>' +
       '<div class="set-row"><div class="k">从图片识别<small>拍照或选手机里的作息表截图</small></div><div class="v">' +
         pickerButtons("ocr-time", "", true) + "</div></div>" +
-      '<details class="pd"' + (ui.pdOpen ? " open" : "") + ">" +
+      '<details class="pd" data-pd="gap"' + (ui.gapOpen ? " open" : "") + ">" +
+        "<summary>课间时长（任意两节之间都能单独设）</summary>" +
+        '<div class="gap-grid">' +
+        (function () {
+          var out = "", gaps = normalizeGaps(tt), ps = state.periods;
+          for (var i = 0; i < 10; i++) {
+            var a = i + 1, b = i + 2;
+            if (i === 3 || i === 7) {
+              var derived = "";
+              if (ps[b - 1] && ps[a - 1]) {
+                derived = toMin(ps[b - 1].start) - toMin(ps[a - 1].end);
+              }
+              out += '<div class="gk">' + a + " → " + b + " 节</div>" +
+                '<div class="gv gnote">由' + (i === 3 ? "下午开始" : "晚上开始") + "决定（" +
+                (derived >= 0 ? derived + " 分钟" : "—") + "）</div>";
+            } else {
+              out += '<div class="gk">' + a + " → " + b + " 节</div>" +
+                '<div class="gv"><input type="number" min="0" max="60" step="5" ' +
+                'data-set="settings.time.gaps.' + i + '" value="' + gaps[i] + '"> <span class="gmin">分钟</span></div>';
+            }
+          }
+          return out;
+        })() +
+        "</div>" +
+      "</details>" +
+      '<details class="pd" data-pd="period"' + (ui.pdOpen ? " open" : "") + ">" +
         "<summary>逐节微调（" + state.periods.length + " 节，可自由改每一节的起止）</summary>" +
         '<div class="period-grid">' +
         state.periods.map(function (p) {
@@ -1096,6 +1137,10 @@
     var key = seg[seg.length - 1];
     if (typeof obj[key] === "number") val = Number(val);
     obj[key] = val;
+    // 改了「默认课间」→ 所有间隔一起重置成这个值
+    if (path === "settings.time.breakMin" && state.settings.time.gaps) {
+      state.settings.time.gaps = state.settings.time.gaps.map(function () { return Number(val); });
+    }
     if (path.indexOf("settings.time") === 0) syncPeriods(true);
     save();
     render();
@@ -1215,8 +1260,9 @@
     });
 
     document.addEventListener("toggle", function (e) {
-      if (e.target && e.target.classList && e.target.classList.contains("pd")) {
-        ui.pdOpen = e.target.open;
+      if (e.target && e.target.dataset && e.target.dataset.pd) {
+        if (e.target.dataset.pd === "gap") ui.gapOpen = e.target.open;
+        else ui.pdOpen = e.target.open;
       }
     }, true);
 
