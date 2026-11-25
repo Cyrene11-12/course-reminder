@@ -408,6 +408,8 @@ textarea { resize: vertical; line-height: 1.55; }
   transition: transform .12s, opacity .15s;
   text-align: center;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  text-decoration: none;
+  white-space: nowrap;
 }
 .btn:active { transform: scale(.97); }
 .btn.primary {
@@ -1535,6 +1537,19 @@ window.SEED_DATA = {
           : '<span class="chip">—</span>') + "</div></div>" +
       "</div></div>";
 
+    // 分享与下载：页面上直接给出下载/仓库入口
+    var gh = githubRepo();
+    h += '<div class="set-group"><div class="set-label">分享与下载</div><div class="set-body">' +
+      '<div class="set-row"><div class="k">复制本页地址<small>发给同学，他打开就能用</small></div>' +
+        '<div class="v"><button class="btn sm" data-act="copy-link">复制</button></div></div>' +
+      (gh
+        ? '<div class="set-row"><div class="k">下载源码<small>整个站点打包成 zip</small></div>' +
+          '<div class="v"><a class="btn sm" href="' + esc(gh.zip) + '" target="_blank" rel="noopener">下载</a></div></div>' +
+          '<div class="set-row"><div class="k">GitHub 仓库<small>' + esc(gh.user + " / " + gh.repo) + "</small></div>" +
+          '<div class="v"><a class="btn sm" href="' + esc(gh.url) + '" target="_blank" rel="noopener">打开</a></div></div>'
+        : "") +
+      "</div></div>";
+
     h += '<div class="set-group"><div class="set-label">数据</div><div class="set-body">' +
       '<div class="set-row"><div class="k">导入课表<small>粘贴文本或图片/网址转换后的课表</small></div>' +
         '<div class="v"><button class="btn sm" data-act="open-import">导入</button></div></div>' +
@@ -1741,6 +1756,30 @@ window.SEED_DATA = {
     if (swStatus === "unsupported") return "这个浏览器不支持离线缓存";
     if (swStatus === "failed") return "缓存没装上，可尝试下载离线版";
     return "正在启用…";
+  }
+
+  /** 从 xxx.github.io/repo 反推出仓库地址；非 Pages 环境返回 null */
+  function githubRepo() {
+    var m = /^([\w.-]+)\.github\.io$/i.exec(location.hostname);
+    if (!m) return null;
+    var user = m[1];
+    var repo = location.pathname.split("/").filter(Boolean)[0] || (user + ".github.io");
+    return {
+      user: user,
+      repo: repo,
+      url: "https://github.com/" + user + "/" + repo,
+      zip: "https://github.com/" + user + "/" + repo + "/archive/refs/heads/main.zip"
+    };
+  }
+
+  function copyText(text, okMsg) {
+    text = text || "";
+    var done = function () { toast(okMsg || "已复制", text); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { toast("复制失败，请手动复制", text); });
+    } else {
+      toast("复制这个地址", text);
+    }
   }
 
   function downloadOffline() {
@@ -2086,6 +2125,8 @@ window.SEED_DATA = {
         }
         case "export": exportJSON(); break;
         case "download-offline": downloadOffline(); break;
+        case "copy-link": copyText(location.href.split("#")[0], "已复制，可以发给同学"); break;
+        case "copy-url": copyText(serverInfo ? serverInfo.url : "", "已复制地址"); break;
         case "regen-periods": {
           syncPeriods(true);
           save(); render();
