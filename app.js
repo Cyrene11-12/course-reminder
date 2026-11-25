@@ -719,6 +719,11 @@
     h += '<div class="set-group"><div class="set-label">手机桌面</div><div class="set-body">' +
       '<div class="set-row"><div class="k">' + esc(ins.title) + "<small>" + esc(ins.sub) + "</small></div>" +
         '<div class="v">' + ins.btn + "</div></div>" +
+      '<div class="set-row"><div class="k">本机访问地址<small>' +
+        (serverInfo ? "手机要连同一个 Wi-Fi 才能打开" : "静态托管版，没有本机地址") + "</small></div>" +
+        '<div class="v">' + (serverInfo
+          ? '<span class="mono" data-act="copy-url">' + esc(serverInfo.url) + "</span>"
+          : '<span class="chip">—</span>') + "</div></div>" +
       "</div></div>";
 
     h += '<div class="set-group"><div class="set-label">数据</div><div class="set-body">' +
@@ -918,6 +923,7 @@
 
   /* ==================== 离线版 ==================== */
   var swStatus = "pending";     // pending | on | insecure | unsupported | failed
+  var serverInfo = null;        // /api/info 返回的本机地址
 
   function offlineText() {
     if (location.protocol === "file:") return "当前就是离线文件版，本来就不需要网络";
@@ -1428,6 +1434,17 @@
     bind();
     render();
     reminderTick();
+
+    // 取本机访问地址（只在 server.py 下有效）
+    fetch("api/info", { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (d && d.ok && d.url) {
+          serverInfo = d;
+          if (ui.tab === "settings") render();
+        }
+      })
+      .catch(function () {});
 
     // 注册 Service Worker：装到桌面后可离线打开（需要 https 或 localhost）
     if (!("serviceWorker" in navigator)) {
