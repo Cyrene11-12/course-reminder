@@ -1,7 +1,6 @@
-/* 课表 · 提醒 —— Service Worker
-   策略：导航和代码类资源「网络优先」（保证改完立刻生效），断网时回退缓存；
-   图标等静态资源「缓存优先」。识别接口（/api/*）永不拦截。 */
-const CACHE = "cr-shell-v5";
+/* 璇捐〃 路 鎻愰啋 鈥斺€?Service Worker
+   绛栫暐锛氬鑸拰浠ｇ爜绫昏祫婧愩€岀綉缁滀紭鍏堛€嶏紙淇濊瘉鏀瑰畬绔嬪埢鐢熸晥锛夛紝鏂綉鏃跺洖閫€缂撳瓨锛?   鍥炬爣绛夐潤鎬佽祫婧愩€岀紦瀛樹紭鍏堛€嶃€傝瘑鍒帴鍙ｏ紙/api/*锛夋案涓嶆嫤鎴€?*/
+const CACHE = "cr-shell-v6";
 const ASSETS = [
   "./",
   "./index.html",
@@ -43,9 +42,9 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
-  if (url.pathname.startsWith("/api/")) return;   // 识别接口必须实时
+  if (url.pathname.startsWith("/api/")) return;   // 璇嗗埆鎺ュ彛蹇呴』瀹炴椂
 
-  // 导航 / 代码 / 样式 / 数据：先要网络，失败再吃缓存
+  // 瀵艰埅 / 浠ｇ爜 / 鏍峰紡 / 鏁版嵁锛氬厛瑕佺綉缁滐紝澶辫触鍐嶅悆缂撳瓨
   const fresh = req.mode === "navigate" || /\.(html|js|css|json)$/.test(url.pathname);
   if (fresh) {
     e.respondWith(
@@ -60,7 +59,7 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
-  // 图标等：缓存优先
+  // 鍥炬爣绛夛細缂撳瓨浼樺厛
   e.respondWith(
     caches.match(req).then((hit) =>
       hit || fetch(req).then((res) => put(req, res)).catch(() => hit)
