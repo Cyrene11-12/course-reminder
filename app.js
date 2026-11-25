@@ -770,9 +770,9 @@
     h += '<div class="set-group"><div class="set-label">分享与下载</div><div class="set-body">' +
       '<div class="set-row"><div class="k">复制本页地址<small>发给同学，他打开就能用</small></div>' +
         '<div class="v"><button class="btn sm" data-act="copy-link">复制</button></div></div>' +
-      (location.protocol === "file:"
+      (location.protocol === "file:" || nativeLN()
         ? ""
-        : '<div class="set-row"><div class="k">安卓安装包<small>APK · 约 4 MB，安装时需允许「未知来源」</small></div>' +
+        : '<div class="set-row"><div class="k">安卓安装包<small>APK · 约 7 MB，安装时需允许「未知来源」</small></div>' +
           '<div class="v"><a class="btn sm" href="coursereminder.apk" download>下载</a></div></div>') +
       (gh
         ? '<div class="set-row"><div class="k">下载源码<small>整个站点打包成 zip</small></div>' +
