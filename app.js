@@ -730,6 +730,13 @@
         '<div class="v"><button class="btn sm danger" data-act="reset">重置</button></div></div>' +
       "</div></div>";
 
+    h += '<div class="set-group"><div class="set-label">离线使用</div><div class="set-body">' +
+      '<div class="set-row"><div class="k">页面缓存<small>' + esc(offlineText()) + "</small></div>" +
+        '<div class="v">' + (swStatus === "on" ? '<span class="chip ok">已就绪</span>' : "") + "</div></div>" +
+      '<div class="set-row"><div class="k">下载离线版<small>单个 HTML，带当前课表和任务，断网也能开</small></div>' +
+        '<div class="v"><button class="btn sm" data-act="download-offline">下载</button></div></div>' +
+      "</div></div>";
+
     h += '<div class="hint">所有数据只保存在这台设备的浏览器里，不会上传到任何服务器。' +
       "多人使用：各自用自己的手机打开同一网址即可，互不影响；也可以把导出的 JSON 发给别人导入。</div>";
     h += '<div class="hint" style="text-align:center;margin-top:22px;opacity:.6">课表 · 提醒 · v1.0</div>';
@@ -907,6 +914,43 @@
       });
     });
     return lines.join("\n");
+  }
+
+  /* ==================== 离线版 ==================== */
+  var swStatus = "pending";     // pending | on | insecure | unsupported | failed
+
+  function offlineText() {
+    if (location.protocol === "file:") return "当前就是离线文件版，本来就不需要网络";
+    if (swStatus === "on") return "已开启，断网也能打开";
+    if (swStatus === "insecure") return "当前是 http 局域网地址，浏览器不允许缓存页面";
+    if (swStatus === "unsupported") return "这个浏览器不支持离线缓存";
+    if (swStatus === "failed") return "缓存没装上，可尝试下载离线版";
+    return "正在启用…";
+  }
+
+  function downloadOffline() {
+    toast("正在生成离线版…", "把课表和任务一起打包");
+    fetch("offline.html", { cache: "no-store" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("取不到离线版（HTTP " + r.status + "）");
+        return r.text();
+      })
+      .then(function (txt) {
+        var json = JSON.stringify(state).replace(/</g, "\\u003c");
+        // 用拼接出来的标记，保证只命中模板里的占位脚本，不会误伤本文件里的同名字符串
+        var marker = "/*__" + "STATE__*/";
+        var out = txt.replace(marker, "window.SEED_DATA = " + json + ";");
+        if (out.indexOf("window.SEED_DATA = {") < 0) throw new Error("模板里没找到数据占位");
+        var blob = new Blob([out], { type: "text/html;charset=utf-8" });
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "课表提醒-离线版.html";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+        toast("已保存离线版", "文件里带了你现在的课表和任务，用浏览器打开就能用，不需要网络");
+      })
+      .catch(function (e) { toast("下载失败", e.message); });
   }
 
   function compressImage(file, cb, onErr) {
@@ -1226,6 +1270,7 @@
           break;
         }
         case "export": exportJSON(); break;
+        case "download-offline": downloadOffline(); break;
         case "regen-periods": {
           syncPeriods(true);
           save(); render();
@@ -1385,11 +1430,23 @@
     reminderTick();
 
     // 注册 Service Worker：装到桌面后可离线打开（需要 https 或 localhost）
-    if ("serviceWorker" in navigator) {
+    if (!("serviceWorker" in navigator)) {
+      swStatus = "unsupported";
+    } else {
       var secure = location.protocol === "https:" ||
         location.hostname === "localhost" || location.hostname === "127.0.0.1";
-      if (secure) {
-        navigator.serviceWorker.register("sw.js").catch(function () { /* 忽略 */ });
+      if (!secure) {
+        swStatus = "insecure";
+      } else {
+        navigator.serviceWorker.register("sw.js").then(function (reg) {
+          if (reg.active || reg.installing || reg.waiting) swStatus = "on";
+        }).catch(function () {
+          swStatus = "failed";
+        });
+        navigator.serviceWorker.ready.then(function () {
+          swStatus = "on";
+          if (ui.tab === "settings") render();
+        }).catch(function () {});
       }
     }
   }
